@@ -68,3 +68,11 @@ resource "aws_s3_bucket_policy" "uploads_tls_only" {
     ]
   })
 }
+
+# GAP-04: enable versioning so PHI overwrites/deletes are recoverable.
+resource "aws_s3_bucket_versioning" "uploads" {
+  bucket = aws_s3_bucket.uploads.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
