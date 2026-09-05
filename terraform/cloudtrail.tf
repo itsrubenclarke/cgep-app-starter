@@ -21,6 +21,18 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "trail" {
   }
 }
 
+# Caught by policies/gap04_s3_versioning.rego running against the real
+# plan: that policy correctly generalizes to every aws_s3_bucket, not just
+# the uploads bucket, and flagged that the Lab 5.2 primitive this file was
+# adapted from never enabled versioning on the trail bucket either. Audit
+# logs deserve the same overwrite/delete protection as PHI.
+resource "aws_s3_bucket_versioning" "trail" {
+  bucket = aws_s3_bucket.trail.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
 resource "aws_s3_bucket_public_access_block" "trail" {
   bucket                  = aws_s3_bucket.trail.id
   block_public_acls       = true
