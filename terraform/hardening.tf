@@ -163,3 +163,59 @@ resource "aws_vpc_endpoint" "kms" {
   security_group_ids  = [aws_security_group.vpc_endpoints.id]
   private_dns_enabled = true
 }
+
+# GAP-06: reserved concurrency, DLQ, X-Ray on the intake Lambda.
+# reserved_concurrent_executions and tracing_config are nested
+# arguments/blocks on aws_lambda_function itself, so those are set
+# directly on that resource in main.tf, not here — same pattern as
+# GAP-02/GAP-05. This file adds the two new resources those settings need:
+# the DLQ queue and X-Ray's own VPC endpoint.
+
+# Note on this DLQ: aws_lambda_function.dead_letter_config only catches
+# failures from ASYNCHRONOUS invocations (S3/SNS/EventBridge triggers).
+# This Lambda is invoked synchronously by API Gateway (AWS_PROXY,
+# request/response) — a failure here returns straight to the caller and
+# never reaches this queue. Added to satisfy the literal GAP-06 wording
+# and its CMMC control mapping, but it is not a fully effective
+# compensating control for this invocation path. A synchronous failure
+# path would need Lambda Destinations on an async wrapper, or a queue
+# in front of the Lambda, neither of which is in scope here.
+resource "aws_sqs_queue" "intake_dlq" {
+  name              = "${local.name_prefix}-intake-dlq-${local.suffix}"
+  kms_master_key_id = aws_kms_key.phi.arn
+}
+
+resource "aws_iam_role_policy" "lambda_dlq" {
+  name = "intake-dlq-access"
+  role = aws_iam_role.lambda.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = "sqs:SendMessage"
+        Resource = aws_sqs_queue.intake_dlq.arn
+      }
+    ]
+  })
+}
+
+# X-Ray write access for the Lambda execution role (segments/telemetry).
+resource "aws_iam_role_policy_attachment" "lambda_xray" {
+  role       = aws_iam_role.lambda.name
+  policy_arn = "arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess"
+}
+
+# Learned from GAP-05: anything the Lambda calls out to needs a route from
+# the private subnets. X-Ray is no different — without this endpoint,
+# tracing would be "enabled" but every segment would silently fail to
+# send. Reuses the same interface-endpoint security group as KMS.
+resource "aws_vpc_endpoint" "xray" {
+  vpc_id              = aws_vpc.main.id
+  service_name        = "com.amazonaws.${var.aws_region}.xray"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = aws_subnet.private[*].id
+  security_group_ids  = [aws_security_group.vpc_endpoints.id]
+  private_dns_enabled = true
+}

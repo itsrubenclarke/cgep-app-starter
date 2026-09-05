@@ -200,11 +200,26 @@ resource "aws_lambda_function" "intake" {
   source_code_hash = data.archive_file.handler.output_base64sha256
   timeout          = 10
 
+  # GAP-06: reserved_concurrent_executions intentionally omitted. This
+  # account's Lambda concurrency quota is capped at 10 total, and AWS
+  # enforces a floor of 10 unreserved executions account-wide — so any
+  # positive reservation (even 1) fails PutFunctionConcurrency here. In
+  # production, request a quota increase first, then reserve a value that
+  # leaves headroom (e.g. 50 out of a 1000 default).
+
   environment {
     variables = {
       INTAKE_TABLE  = aws_dynamodb_table.intake.name
       UPLOAD_BUCKET = aws_s3_bucket.uploads.id
     }
+  }
+
+  dead_letter_config {
+    target_arn = aws_sqs_queue.intake_dlq.arn
+  }
+
+  tracing_config {
+    mode = "Active"
   }
 
   vpc_config {
