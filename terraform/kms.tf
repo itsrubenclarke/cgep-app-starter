@@ -20,6 +20,32 @@ resource "aws_kms_key" "phi" {
         Principal = { AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root" }
         Action    = "kms:*"
         Resource  = "*"
+      },
+      {
+        # CloudWatch Logs needs its own key-policy grant to encrypt a log
+        # group with this CMK - IAM permissions alone aren't enough for
+        # this service, and it requires this specific EncryptionContext
+        # condition. Added for the GAP-08 API Gateway access log group
+        # (terraform/hardening.tf) to keep it on the same customer CMK as
+        # the rest of the system rather than the AWS-managed default.
+        Sid    = "AllowCloudWatchLogsEncryption"
+        Effect = "Allow"
+        Principal = {
+          Service = "logs.${var.aws_region}.amazonaws.com"
+        }
+        Action = [
+          "kms:Encrypt*",
+          "kms:Decrypt*",
+          "kms:ReEncrypt*",
+          "kms:GenerateDataKey*",
+          "kms:Describe*"
+        ]
+        Resource = "*"
+        Condition = {
+          ArnLike = {
+            "kms:EncryptionContext:aws:logs:arn" = "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:*"
+          }
+        }
       }
     ]
   })

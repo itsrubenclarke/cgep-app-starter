@@ -238,8 +238,13 @@ resource "aws_vpc_endpoint" "xray" {
 resource "aws_cloudwatch_log_group" "apigw" {
   name              = "/aws/apigateway/${local.name_prefix}"
   retention_in_days = 30
+  kms_key_id        = aws_kms_key.phi.arn
 }
 
+# Scoped to this specific API's execution ARN via aws:SourceArn - without
+# it, any AWS account's API Gateway could name this log group as a
+# destination and this policy would still allow the write (a classic
+# confused-deputy path via a service principal with no source condition).
 resource "aws_cloudwatch_log_resource_policy" "apigw" {
   policy_name = "${local.name_prefix}-apigw-logs"
 
@@ -251,6 +256,11 @@ resource "aws_cloudwatch_log_resource_policy" "apigw" {
         Principal = { Service = "apigateway.amazonaws.com" }
         Action    = ["logs:CreateLogStream", "logs:PutLogEvents"]
         Resource  = "${aws_cloudwatch_log_group.apigw.arn}:*"
+        Condition = {
+          ArnLike = {
+            "aws:SourceArn" = "${aws_apigatewayv2_api.intake.execution_arn}/*"
+          }
+        }
       }
     ]
   })
