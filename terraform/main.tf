@@ -257,7 +257,28 @@ resource "aws_apigatewayv2_stage" "default" {
   api_id      = aws_apigatewayv2_api.intake.id
   name        = "$default"
   auto_deploy = true
-  # GAP-08: no access_log_settings. Learner expected to wire CloudWatch logs.
+
+  access_log_settings {
+    destination_arn = aws_cloudwatch_log_group.apigw.arn
+    format = jsonencode({
+      requestId      = "$context.requestId"
+      ip             = "$context.identity.sourceIp"
+      requestTime    = "$context.requestTime"
+      httpMethod     = "$context.httpMethod"
+      routeKey       = "$context.routeKey"
+      status         = "$context.status"
+      protocol       = "$context.protocol"
+      responseLength = "$context.responseLength"
+    })
+  }
+
+  default_route_settings {
+    throttling_burst_limit = 50
+    throttling_rate_limit  = 100
+  }
+
+  # GAP-08 (WAF): not attached - HTTP APIs aren't a supported WAFv2
+  # association target. See hardening.tf for the full explanation.
 }
 
 resource "aws_lambda_permission" "apigw" {

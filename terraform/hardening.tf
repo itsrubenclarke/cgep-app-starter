@@ -219,3 +219,39 @@ resource "aws_vpc_endpoint" "xray" {
   security_group_ids  = [aws_security_group.vpc_endpoints.id]
   private_dns_enabled = true
 }
+
+# GAP-08: access logging + throttling on the API Gateway stage.
+# access_log_settings and default_route_settings are nested blocks on
+# aws_apigatewayv2_stage itself, so those are set directly on that
+# resource in main.tf, not here — same pattern as GAP-02/05/07. This file
+# adds the log group logging writes to, plus the resource policy API
+# Gateway needs to be allowed to write to it.
+#
+# WAF is NOT included: WAFv2 web ACL association only supports REST API
+# Gateway stages, ALB, AppSync, Cognito, App Runner, and Verified Access —
+# HTTP APIs (aws_apigatewayv2_api, what the starter builds) are not a
+# supported association target at all. Closing this fully would mean
+# fronting the API with CloudFront (WAF supports CLOUDFRONT scope) or
+# migrating to a REST API — both meaningfully more infrastructure than
+# this one sub-item of one gap justifies. Documented as a known
+# limitation rather than silently dropped.
+resource "aws_cloudwatch_log_group" "apigw" {
+  name              = "/aws/apigateway/${local.name_prefix}"
+  retention_in_days = 30
+}
+
+resource "aws_cloudwatch_log_resource_policy" "apigw" {
+  policy_name = "${local.name_prefix}-apigw-logs"
+
+  policy_document = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect    = "Allow"
+        Principal = { Service = "apigateway.amazonaws.com" }
+        Action    = ["logs:CreateLogStream", "logs:PutLogEvents"]
+        Resource  = "${aws_cloudwatch_log_group.apigw.arn}:*"
+      }
+    ]
+  })
+}
