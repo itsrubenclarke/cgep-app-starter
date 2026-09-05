@@ -46,6 +46,51 @@ resource "aws_kms_key" "phi" {
             "kms:EncryptionContext:aws:logs:arn" = "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:*"
           }
         }
+      },
+      # CloudTrail's own required key-policy pattern for SSE-KMS trail
+      # logs (terraform/cloudtrail.tf) - fourth instance of the same
+      # "the key policy alone doesn't grant a service access" lesson from
+      # GAP-01/02/06/08. This is AWS's documented three-statement shape
+      # for this exact integration, not something to simplify.
+      {
+        Sid    = "AllowCloudTrailToEncryptLogs"
+        Effect = "Allow"
+        Principal = {
+          Service = "cloudtrail.amazonaws.com"
+        }
+        Action   = "kms:GenerateDataKey*"
+        Resource = "*"
+        Condition = {
+          StringLike = {
+            "kms:EncryptionContext:aws:cloudtrail:arn" = "arn:aws:cloudtrail:*:${data.aws_caller_identity.current.account_id}:trail/*"
+          }
+        }
+      },
+      {
+        Sid    = "AllowCloudTrailToDescribeKey"
+        Effect = "Allow"
+        Principal = {
+          Service = "cloudtrail.amazonaws.com"
+        }
+        Action   = "kms:DescribeKey"
+        Resource = "*"
+      },
+      {
+        Sid    = "AllowPrincipalsInAccountToDecryptTrailLogs"
+        Effect = "Allow"
+        Principal = {
+          AWS = "*"
+        }
+        Action   = ["kms:Decrypt", "kms:ReEncryptFrom"]
+        Resource = "*"
+        Condition = {
+          StringEquals = {
+            "kms:CallerAccount" = data.aws_caller_identity.current.account_id
+          }
+          StringLike = {
+            "kms:EncryptionContext:aws:cloudtrail:arn" = "arn:aws:cloudtrail:*:${data.aws_caller_identity.current.account_id}:trail/*"
+          }
+        }
       }
     ]
   })
