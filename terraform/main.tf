@@ -13,6 +13,25 @@ terraform {
     random  = { source = "hashicorp/random", version = "~> 3.6" }
     archive = { source = "hashicorp/archive", version = "~> 2.4" }
   }
+
+  # Remote state, shared between this laptop and grc-gate.yml's runners.
+  # Without this, every CI run starts from an empty state (nothing on
+  # a GitHub Actions runner has ever seen the local terraform.tfstate,
+  # which stays gitignored on purpose) and plans to recreate all 56
+  # resources from scratch. Confirmed this the hard way: CI's first real
+  # run planned "56 to add, 0 to change" against infrastructure that
+  # already existed, and GAP-02's policy failed because a freshly-created
+  # DynamoDB table's kms_key_arn isn't known until after apply.
+  #
+  # Bucket and lock table are created once via plain AWS CLI (not managed
+  # by this stack) since a stack can't own the backend it depends on.
+  backend "s3" {
+    bucket         = "acme-health-intake-tfstate-459936081946"
+    key            = "capstone/terraform.tfstate"
+    region         = "us-east-1"
+    dynamodb_table = "acme-health-intake-tfstate-lock"
+    encrypt        = true
+  }
 }
 
 provider "aws" {
@@ -111,8 +130,10 @@ resource "aws_dynamodb_table" "intake" {
     type = "S"
   }
 
-  # No server_side_encryption block. Defaults to AWS-owned key.
-  # GAP-02: capstone learner expected to add this with a customer-owned key.
+  server_side_encryption {
+    enabled     = true
+    kms_key_arn = aws_kms_key.phi.arn
+  }
 }
 
 ######################################################################
@@ -167,7 +188,8 @@ resource "aws_iam_role_policy_attachment" "lambda_basic" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
-# GAP-07: deliberately broad permissions on the workload data stores.
+# GAP-07: scoped to exactly what handler.py calls -
+# dynamodb.Table(...).put_item() and s3.put_object() - nothing else.
 resource "aws_iam_role_policy" "lambda_inline" {
   name = "intake-data-access"
   role = aws_iam_role.lambda.id
@@ -177,12 +199,12 @@ resource "aws_iam_role_policy" "lambda_inline" {
     Statement = [
       {
         Effect   = "Allow"
-        Action   = "dynamodb:*"
+        Action   = "dynamodb:PutItem"
         Resource = aws_dynamodb_table.intake.arn
       },
       {
         Effect   = "Allow"
-        Action   = "s3:*"
+        Action   = "s3:PutObject"
         Resource = ["${aws_s3_bucket.uploads.arn}", "${aws_s3_bucket.uploads.arn}/*"]
       }
     ]
@@ -198,6 +220,13 @@ resource "aws_lambda_function" "intake" {
   source_code_hash = data.archive_file.handler.output_base64sha256
   timeout          = 10
 
+  # GAP-06: reserved_concurrent_executions intentionally omitted. This
+  # account's Lambda concurrency quota is capped at 10 total, and AWS
+  # enforces a floor of 10 unreserved executions account-wide — so any
+  # positive reservation (even 1) fails PutFunctionConcurrency here. In
+  # production, request a quota increase first, then reserve a value that
+  # leaves headroom (e.g. 50 out of a 1000 default).
+
   environment {
     variables = {
       INTAKE_TABLE  = aws_dynamodb_table.intake.name
@@ -205,8 +234,18 @@ resource "aws_lambda_function" "intake" {
     }
   }
 
-  # GAP-05: no vpc_config block. Learner expected to add one referencing
-  # aws_subnet.private[*] and a hardened security group.
+  dead_letter_config {
+    target_arn = aws_sqs_queue.intake_dlq.arn
+  }
+
+  tracing_config {
+    mode = "Active"
+  }
+
+  vpc_config {
+    subnet_ids         = aws_subnet.private[*].id
+    security_group_ids = [aws_security_group.lambda.id]
+  }
 }
 
 ######################################################################
@@ -237,7 +276,28 @@ resource "aws_apigatewayv2_stage" "default" {
   api_id      = aws_apigatewayv2_api.intake.id
   name        = "$default"
   auto_deploy = true
-  # GAP-08: no access_log_settings. Learner expected to wire CloudWatch logs.
+
+  access_log_settings {
+    destination_arn = aws_cloudwatch_log_group.apigw.arn
+    format = jsonencode({
+      requestId      = "$context.requestId"
+      ip             = "$context.identity.sourceIp"
+      requestTime    = "$context.requestTime"
+      httpMethod     = "$context.httpMethod"
+      routeKey       = "$context.routeKey"
+      status         = "$context.status"
+      protocol       = "$context.protocol"
+      responseLength = "$context.responseLength"
+    })
+  }
+
+  default_route_settings {
+    throttling_burst_limit = 50
+    throttling_rate_limit  = 100
+  }
+
+  # GAP-08 (WAF): not attached - HTTP APIs aren't a supported WAFv2
+  # association target. See hardening.tf for the full explanation.
 }
 
 resource "aws_lambda_permission" "apigw" {
