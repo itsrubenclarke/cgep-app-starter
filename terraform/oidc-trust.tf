@@ -24,6 +24,18 @@ data "aws_iam_openid_connect_provider" "github" {
 
 # Assumable from any ref in this repo (PRs included) - read-only, for the
 # plan + policy-check steps that run on every PR.
+#
+# This repo is public. A security review caught that the `sub` claim
+# alone is NOT a safe trust boundary here: for a pull_request event,
+# GitHub's sub claim only encodes the base repo (itsrubenclarke/
+# cgep-app-starter), the same whether the PR comes from a branch on this
+# repo or from a stranger's fork with a rewritten grc-gate.yml. Unlike
+# secrets, repository `vars` (what role-to-assume reads) ARE exposed to
+# fork-triggered pull_request runs, so the `sub`-only condition would let
+# any fork holding its own modified workflow assume this role.
+# job_workflow_ref doesn't have that gap: it always names wherever the
+# workflow FILE ITSELF lives, so a fork's rewritten workflow shows the
+# fork's own path, not this one. Both conditions must hold.
 resource "aws_iam_role" "grc_gate_plan" {
   name = "${local.name_prefix}-grc-gate-plan"
 
@@ -35,7 +47,10 @@ resource "aws_iam_role" "grc_gate_plan" {
       Action    = "sts:AssumeRoleWithWebIdentity"
       Condition = {
         StringEquals = { "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com" }
-        StringLike   = { "token.actions.githubusercontent.com:sub" = "repo:itsrubenclarke@*/cgep-app-starter@*:*" }
+        StringLike = {
+          "token.actions.githubusercontent.com:sub"              = "repo:itsrubenclarke@*/cgep-app-starter@*:*"
+          "token.actions.githubusercontent.com:job_workflow_ref" = "itsrubenclarke/cgep-app-starter/.github/workflows/grc-gate.yml@*"
+        }
       }
     }]
   })
@@ -62,6 +77,35 @@ resource "aws_iam_role_policy" "grc_gate_plan_state_lock" {
         Effect   = "Allow"
         Action   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:DeleteItem"]
         Resource = "arn:aws:dynamodb:us-east-1:${data.aws_caller_identity.current.account_id}:table/acme-health-intake-tfstate-lock"
+      }
+    ]
+  })
+}
+
+# Every PR run signs and uploads evidence too, even one the policy gate
+# blocks, so a red PR still leaves a signed, verifiable record that the
+# gate actually caught it, not just a workflow status badge. That needs
+# two grants ReadOnlyAccess doesn't include: s3:PutObject to the vault
+# itself, and kms:GenerateDataKey on the CMK the vault is encrypted
+# with - yet another instance of the "the key policy alone grants
+# nothing" pattern already seen for CloudWatch Logs, CloudTrail, and the
+# Lambda's own KMS access.
+resource "aws_iam_role_policy" "grc_gate_plan_evidence_upload" {
+  name = "evidence-vault-upload"
+  role = aws_iam_role.grc_gate_plan.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = "s3:PutObject"
+        Resource = "${aws_s3_bucket.evidence_vault.arn}/runs/*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = "kms:GenerateDataKey"
+        Resource = aws_kms_key.phi.arn
       }
     ]
   })
