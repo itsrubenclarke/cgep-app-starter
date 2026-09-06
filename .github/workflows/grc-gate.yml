@@ -1,0 +1,103 @@
+# .github/workflows/grc-gate.yml
+# Adapted from the labs' working grc-gate.yml (Lab 4.3/4.4), extended
+# with the one thing the labs didn't do: an actual apply on merge to
+# main (Lab-7.1-Capstone-Companion.md line 52). PRs only ever plan and
+# policy-check against the read-only grc-gate-plan role; only a push to
+# main can assume grc-gate-apply and actually deploy (see
+# terraform/oidc-trust.tf for why the trust is split this way).
+name: grc-gate
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write       # required for AWS OIDC + Cosign keyless
+  contents: read
+  pull-requests: write  # required to comment on the PR
+  security-events: write
+
+env:
+  AWS_REGION: us-east-1
+  TF_WORKING_DIR: terraform
+
+jobs:
+  grc-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # PRs (any ref) get the read-only plan role. Only a push to main
+      # gets the privileged apply role - see terraform/oidc-trust.tf's
+      # ref:refs/heads/main condition on grc-gate-apply. Never widen this
+      # selection to also hand the apply role to pull_request events.
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ github.event_name == 'push' && vars.AWS_ROLE_APPLY_ARN || vars.AWS_ROLE_PLAN_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.6
+          terraform_wrapper: false
+
+      - name: Install Conftest
+        run: |
+          curl -fsSL https://github.com/open-policy-agent/conftest/releases/download/v0.50.0/conftest_0.50.0_Linux_x86_64.tar.gz \
+            | tar -xz -C /usr/local/bin conftest
+
+      - name: Install Cosign
+        run: |
+          curl -fsSL https://github.com/sigstore/cosign/releases/download/v2.2.4/cosign-linux-amd64 \
+            -o /usr/local/bin/cosign && chmod +x /usr/local/bin/cosign
+
+      - name: Terraform plan
+        id: plan
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          terraform init -input=false
+          terraform validate
+          terraform plan -out=tfplan -input=false -no-color | tee plan.txt
+
+      - name: Conftest policy gate
+        id: policy_check
+        run: ./scripts/policy-gate.sh --workspace "$TF_WORKING_DIR"
+
+      # Only step in the whole workflow that changes real infrastructure.
+      # Runs only on a push to main, and only if the policy gate passed -
+      # a direct push that somehow bypasses PR review still can't apply
+      # over a failing gate.
+      - name: Terraform apply (main only)
+        id: apply
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.policy_check.outcome == 'success'
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform apply -auto-approve tfplan
+
+      # Runs regardless of pass/fail (always()) - a failed run's plan and
+      # policy-gate results get signed and uploaded too, so there's
+      # verifiable evidence of every run, not just the ones that passed.
+      - name: Sign and upload evidence
+        id: evidence
+        if: always()
+        env:
+          VAULT: ${{ vars.EVIDENCE_VAULT }}
+          RUN_ID: ${{ github.run_id }}
+          SHA: ${{ github.sha }}
+        run: ./scripts/capture-evidence.sh --workspace "$TF_WORKING_DIR" --run-id "$RUN_ID" --sha "$SHA" --vault "$VAULT"
+
+      - name: Upload evidence artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: grc-evidence-${{ github.run_id }}
+          path: evidence/grc-gate/
+          retention-days: 90
+
+      - name: Enforce gate
+        if: always()
+        run: test "${{ steps.policy_check.outcome }}" = "success"
