@@ -13,6 +13,25 @@ terraform {
     random  = { source = "hashicorp/random", version = "~> 3.6" }
     archive = { source = "hashicorp/archive", version = "~> 2.4" }
   }
+
+  # Remote state, shared between this laptop and grc-gate.yml's runners.
+  # Without this, every CI run starts from an empty state (nothing on
+  # a GitHub Actions runner has ever seen the local terraform.tfstate,
+  # which stays gitignored on purpose) and plans to recreate all 56
+  # resources from scratch. Confirmed this the hard way: CI's first real
+  # run planned "56 to add, 0 to change" against infrastructure that
+  # already existed, and GAP-02's policy failed because a freshly-created
+  # DynamoDB table's kms_key_arn isn't known until after apply.
+  #
+  # Bucket and lock table are created once via plain AWS CLI (not managed
+  # by this stack) since a stack can't own the backend it depends on.
+  backend "s3" {
+    bucket         = "acme-health-intake-tfstate-459936081946"
+    key            = "capstone/terraform.tfstate"
+    region         = "us-east-1"
+    dynamodb_table = "acme-health-intake-tfstate-lock"
+    encrypt        = true
+  }
 }
 
 provider "aws" {

@@ -46,6 +46,27 @@ resource "aws_iam_role_policy_attachment" "grc_gate_plan_readonly" {
   policy_arn = "arn:aws:iam::aws:policy/ReadOnlyAccess"
 }
 
+# Even a read-only `terraform plan` acquires and releases a DynamoDB lock
+# on every run - ReadOnlyAccess covers reading the state object in S3, but
+# not the PutItem/DeleteItem the lock itself needs. Without this, PR
+# plans fail to acquire the lock at all. Scoped to just this lock table,
+# not DynamoDB generally.
+resource "aws_iam_role_policy" "grc_gate_plan_state_lock" {
+  name = "tfstate-lock"
+  role = aws_iam_role.grc_gate_plan.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:DeleteItem"]
+        Resource = "arn:aws:dynamodb:us-east-1:${data.aws_caller_identity.current.account_id}:table/acme-health-intake-tfstate-lock"
+      }
+    ]
+  })
+}
+
 # Assumable ONLY from a push to main - the only ref allowed to actually
 # deploy, sign, and upload evidence. This is the role that matters most:
 # never loosen this ref condition to a wildcard, or any branch/PR in this
