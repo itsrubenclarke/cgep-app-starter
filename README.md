@@ -1,80 +1,132 @@
-# cgep-app-starter
+# Acme Health Patient Intake API: CGE-P Capstone
 
-> Patient Intake API for "Acme Health". The deliberately-flawed workload your **CGE-P capstone** wraps with GRC controls.
+Ruben Clarke's Certified GRC Engineer (Practitioner) capstone. Wraps the
+[`GRCEngClub/cgep-app-starter`](https://github.com/GRCEngClub/cgep-app-starter)
+Patient Intake API in the four CGE-P layers so the workload is audit-defensible
+against **CMMC Level 2** as the primary framework.
 
-## What this is
+**Full reasoning:** [`WRITEUP.md`](./WRITEUP.md) covers framework choice, control
+coverage, design decisions, the evidence trace, trade-offs, and a residual risk
+register. [`DESIGN.md`](./DESIGN.md) holds the per-gap maps behind it.
 
-A minimal AWS workload: VPC, Lambda, API Gateway, DynamoDB, S3. It ingests patient intake submissions over HTTPS. Think of it as a system you have just inherited from an engineering team and been asked to make audit-defensible.
+**What to grade:** head of `main`. Every push to `main` produces a fresh signed
+evidence bundle in the vault under `runs/<run_id>/`.
 
-This repository ships **non-compliant on purpose**. Your job in the capstone is not to rewrite this app. Your job is to wrap it with the four CGE-P layers (Terraform GRC baseline, Rego policies, GitHub Actions evidence pipeline, OSCAL component) so the same workload becomes audit-defensible against HIPAA, SOC 2, and CMMC L2.
+## What's here
 
-## The deploy gate
+| Layer | Where | What it does |
+|---|---|---|
+| 1. Terraform baseline | `terraform/` | Customer-managed KMS key, Object Lock evidence vault, multi-region CloudTrail, GitHub OIDC roles, and the overrides closing the 8 gaps in [`GAPS.md`](./GAPS.md) |
+| 2. Policy suite | `policies/` | 6 Rego policies, 13 tests, each citing a CMMC L2 control and catching a real gap |
+| 3. Pipeline | `.github/workflows/grc-gate.yml` | plan → policy check → apply on merge → sign → upload to vault |
+| 4. OSCAL | `oscal/` | Component definition, profile, and authored catalog. See [`oscal/README.md`](./oscal/README.md) |
 
-If you cannot deploy this starter, you cannot pass the capstone. Real GRC engineers inherit working systems. Step zero is making the system run.
+## For the grader: verifying this submission
+
+### No AWS credentials needed
 
 ```bash
-git clone https://github.com/GRCEngClub/cgep-app-starter
-cd cgep-app-starter
+git clone https://github.com/itsrubenclarke/cgep-app-starter && cd cgep-app-starter
 
-# Confirm you're authenticated to the right account:
-make creds AWS_PROFILE=<your-sandbox-profile>
+# Layer 2: the policy suite passes its own tests
+opa test policies/
+# → PASS: 13/13
 
+# Layer 4: the OSCAL validates (see oscal/README.md for the full recipe)
+cat oscal/trestle-validate.txt
+```
+
+**The gate has teeth.** Both graded PRs are in the history. The
+[Actions tab](https://github.com/itsrubenclarke/cgep-app-starter/actions) labels
+runs `grc-gate #1` through `#6`, while the scripts and `WRITEUP.md` refer to run
+IDs, so here is the full mapping. Three of the six are red, and that is the point:
+
+| Run | ID | What it was | Result |
+|---|---|---|---|
+| `#1` | [34023942632](https://github.com/itsrubenclarke/cgep-app-starter/actions/runs/34023942632) | PR #1, first CI run. CI had no access to Terraform state, so it planned to rebuild all 56 resources; the GAP-02 policy correctly failed against that plan | ❌ diagnosed, fixed with a remote backend |
+| `#2` | [34024334524](https://github.com/itsrubenclarke/cgep-app-starter/actions/runs/34024334524) | PR #1, after the backend fix. Policy gate now **passed**; the run failed only because the plan role couldn't yet write evidence to the vault | ❌ permissions, then granted |
+| `#3` | [34024761519](https://github.com/itsrubenclarke/cgep-app-starter/actions/runs/34024761519) | PR #1, green check. Gate passed and evidence was signed under the pull-request identity | ✅ |
+| `#4` | [34024978457](https://github.com/itsrubenclarke/cgep-app-starter/actions/runs/34024978457) | **Merge of PR #1 to `main`.** All 14 steps passed, including the pipeline's first real `Terraform apply` | ✅ **the graded green run** |
+| `#5` | [34025487183](https://github.com/itsrubenclarke/cgep-app-starter/actions/runs/34025487183) | **PR #2**, reintroducing GAP-07's wildcard IAM permission. Gate failed, `Terraform apply` was skipped, PR status came back `FAILURE`. Closed unmerged | ❌ **the graded red run, blocked by design** |
+| `#6` | [34036921316](https://github.com/itsrubenclarke/cgep-app-starter/actions/runs/34036921316) | Layer 4 OSCAL push to `main`. A second full deployment | ✅ |
+
+Runs `#1` and `#2` are development failures, kept rather than rewritten: `WRITEUP.md`
+traces what each one exposed, including a fork-PR trust hole in the OIDC role that
+surfaced while fixing them. Run `#5` is the deliberate one. Runs `#4` and `#6` are both real
+deployments and both verify below. Any run numbered above `#6` is a later push to
+`main`, each producing its own signed bundle in the vault under `runs/<run_id>/`.
+
+**Per-run policy results** are attached to every run as the `grc-evidence-<run_id>`
+artifact (Actions tab → the run → Artifacts). It contains `conftest-results.json`,
+the per-policy pass/fail for that plan, and `receipt.json`, which records the
+bundle's SHA-256, its S3 version ID, and the commit it came from. Note the signed
+bundle itself lives in the vault rather than the artifact, so verifying the
+signature needs the read access below.
+
+### Needs read access to this AWS account
+
+```bash
+# Run #4, the graded green run (merge of PR #1)
+./scripts/verify-evidence.sh 34024978457 \
+  --vault acme-health-intake-evidence-vault-4f63d674 --profile default
+# → Verified OK
+# → CHAIN INTACT for run 34024978457
+
+# Run #6, a second, later deployment from main
+./scripts/verify-evidence.sh 34036921316 \
+  --vault acme-health-intake-evidence-vault-4f63d674 --profile default
+# → CHAIN INTACT for run 34036921316
+```
+
+`CHAIN INTACT` means all three checks passed: the bundle matches its recorded
+SHA-256, its Cosign signature verifies against Sigstore's public transparency log
+as having come from this repo's workflow on `main`, and the object is still under
+Object Lock retention.
+
+Run `34024761519` (`#3`) is the honest negative case. It's the pull-request check
+rather than a deployment, so it's signed under `refs/pull/1/merge` and verification
+of it *fails* by design: the identity pin distinguishes a check run from a real
+deploy rather than trusting anything the pipeline signs.
+
+For a signed snapshot of the vault's own configuration (Object Lock mode,
+retention, versioning, which key encrypts it):
+
+```bash
+./scripts/capture-attestation.sh --run-id 34024978457 \
+  --vault acme-health-intake-evidence-vault-4f63d674 --profile default
+```
+
+### Deploy it yourself (optional)
+
+The starter's workload is unchanged and still runs. Nothing above requires this.
+
+```bash
 make deploy AWS_PROFILE=<your-sandbox-profile>
-make test    AWS_PROFILE=<your-sandbox-profile>
+make test   AWS_PROFILE=<your-sandbox-profile>
+# → {"submission_id": "...", "status": "received"}
 ```
 
-> **AWS SSO note:** if your profile is SSO-based, Terraform's AWS provider can fail to read it directly with `failed to find SSO session section`. The Makefile's `eval $(aws configure export-credentials)` pattern handles this. If you're running `terraform` commands by hand, do the same export first.
+> **AWS SSO note:** if your profile is SSO-based, Terraform's provider can fail to
+> read it directly with `failed to find SSO session section`. The Makefile's
+> `eval $(aws configure export-credentials)` pattern handles this; do the same
+> export first if running `terraform` by hand.
 
-Expected output of `make test`:
+## Cost and teardown
 
-```json
-{
-    "submission_id": "f1e3...",
-    "status": "received"
-}
-```
+Pay-per-use for the workload itself. The always-on costs are the customer-managed
+KMS key, CloudTrail, and the two VPC interface endpoints (KMS and X-Ray), the last
+being the largest line item at roughly $7/month each.
 
-When you're done exploring: `make destroy`.
+`make destroy` removes the workload. It will **not** empty the evidence vault:
+objects there are under Object Lock GOVERNANCE retention for 365 days, so deleting
+them early requires a caller explicitly granted `s3:BypassGovernanceRetention`,
+which nobody currently holds. That's the intended behaviour, not a bug.
 
-## What you build on top
+## Attribution
 
-Fork the repo into your own `cgep-capstone` and add:
+Starter application, `GAPS.md`, `FRAMEWORKS.md`, and `WORKLOAD.md` come from
+[`GRCEngClub/cgep-app-starter`](https://github.com/GRCEngClub/cgep-app-starter).
+Everything in `terraform/` beyond the starter's own resources, plus all of
+`policies/`, `scripts/`, `.github/`, and `oscal/`, was authored for this capstone.
 
-1. **Layer 1 — GRC baseline (Terraform).** KMS keys, an S3 evidence vault with Object Lock, a CloudTrail trail. Bring this starter's data stores under your CMK.
-2. **Layer 2 — OPA policy suite (Rego).** Five or more policies that catch the named gaps in [GAPS.md](GAPS.md). Each policy maps to at least one control from the framework you choose.
-3. **Layer 3 — GitHub Actions pipeline.** Plan → Conftest gate → apply → Cosign sign → upload to vault.
-4. **Layer 4 — OSCAL component.** A `component-definition.json` describing how your governed system implements its controls.
-
-Full brief: `docs/labs/07_01_capstone_brief.md` in the course content repo.
-
-## Framework mapping is required
-
-Your capstone must declare a primary framework: **HIPAA Security Rule**, **SOC 2 Trust Services Criteria**, or **CMMC Level 2**. Every policy carries at least one control ID from your chosen framework. Your OSCAL component's `control-implementations` reference your framework's catalog.
-
-A starter mapping is in [FRAMEWORKS.md](FRAMEWORKS.md). It is not the only valid mapping. You're expected to defend yours.
-
-## Cost
-
-Roughly $0 if destroyed within an hour. Lambda + API Gateway + DynamoDB + S3 are all pay-per-use, and an empty deployment generates no traffic. CloudTrail (which you add) costs cents.
-
-## Layout
-
-```
-cgep-app-starter/
-├── README.md            # this file
-├── WORKLOAD.md          # what the API does
-├── GAPS.md              # the named flaws your policies must catch
-├── FRAMEWORKS.md        # HIPAA / SOC 2 / CMMC mapping primer
-├── Makefile             # make deploy | test | destroy
-├── terraform/
-│   ├── main.tf
-│   ├── variables.tf
-│   ├── outputs.tf
-│   └── lambda/handler.py
-└── test/
-    └── intake.sh
-```
-
-## License
-
-MIT. Fork freely. Submissions remain learners' own work.
+License follows the starter: MIT.

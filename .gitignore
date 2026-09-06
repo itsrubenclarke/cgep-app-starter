@@ -16,6 +16,7 @@ terraform/lambda/handler.zip
 # Local
 evidence/
 .DS_Store
+NOTEPAD.md
 
 # Trestle scratch workspace - author here, copy finished JSON into oscal/
 .trestle-work/
