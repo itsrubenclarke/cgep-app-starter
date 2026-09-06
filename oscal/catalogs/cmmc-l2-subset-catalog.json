@@ -1,0 +1,121 @@
+{
+  "catalog": {
+    "uuid": "c37678be-cd51-4522-9eb7-8912093b04f4",
+    "metadata": {
+      "title": "CMMC Level 2 practices cited by the Acme Health capstone (subset)",
+      "last-modified": "2026-09-06T00:00:00.000000+00:00",
+      "version": "1.0.0",
+      "oscal-version": "1.2.1",
+      "remarks": "Not an official NIST or CMMC-AB publication. NIST's oscal-content repository only publishes SP 800-171 as OSCAL for Rev 3 (renumbered SP_800_171_03.xx.xx IDs); CMMC 2.0 Level 2 is defined against Rev 2, whose ID scheme (e.g. AC.L2-3.1.5) has no official OSCAL catalog. This file contains only the 7 practices this project's component-definition actually implements, authored directly from CMMC's public Level 2 practice descriptions, so control-id values here are internally consistent with the rest of this repo rather than sourced from an upstream catalog that doesn't exist."
+    },
+    "groups": [
+      {
+        "id": "ac",
+        "title": "Access Control",
+        "controls": [
+          {
+            "id": "AC.L2-3.1.5",
+            "title": "Least Privilege",
+            "parts": [
+              {
+                "id": "AC.L2-3.1.5_smt",
+                "name": "statement",
+                "prose": "Employ the principle of least privilege, including for specific security functions and privileged accounts."
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "au",
+        "title": "Audit and Accountability",
+        "controls": [
+          {
+            "id": "AU.L2-3.3.1",
+            "title": "System Audit Logging",
+            "parts": [
+              {
+                "id": "AU.L2-3.3.1_smt",
+                "name": "statement",
+                "prose": "Create and retain system audit logs and records to the extent needed to enable the monitoring, analysis, investigation, and reporting of unlawful or unauthorized system activity."
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "mp",
+        "title": "Media Protection",
+        "controls": [
+          {
+            "id": "MP.L2-3.8.9",
+            "title": "Protection of Backup CUI",
+            "parts": [
+              {
+                "id": "MP.L2-3.8.9_smt",
+                "name": "statement",
+                "prose": "Protect the confidentiality of backup CUI at storage locations."
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "sc",
+        "title": "System and Communications Protection",
+        "controls": [
+          {
+            "id": "SC.L2-3.13.1",
+            "title": "Boundary Protection",
+            "parts": [
+              {
+                "id": "SC.L2-3.13.1_smt",
+                "name": "statement",
+                "prose": "Monitor, control, and protect communications (i.e., information transmitted or received by organizational systems) at the external boundaries and key internal boundaries of organizational systems."
+              }
+            ]
+          },
+          {
+            "id": "SC.L2-3.13.8",
+            "title": "Transmission Confidentiality",
+            "parts": [
+              {
+                "id": "SC.L2-3.13.8_smt",
+                "name": "statement",
+                "prose": "Implement cryptographic mechanisms to prevent unauthorized disclosure of CUI during transmission unless otherwise protected by alternative physical safeguards."
+              }
+            ]
+          },
+          {
+            "id": "SC.L2-3.13.11",
+            "title": "Cryptographic Protection",
+            "parts": [
+              {
+                "id": "SC.L2-3.13.11_smt",
+                "name": "statement",
+                "prose": "Employ FIPS-validated cryptography when used to protect the confidentiality of CUI."
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "si",
+        "title": "System and Information Integrity",
+        "controls": [
+          {
+            "id": "SI.L2-3.14.6",
+            "title": "System Monitoring",
+            "parts": [
+              {
+                "id": "SI.L2-3.14.6_smt",
+                "name": "statement",
+                "prose": "Monitor organizational systems, including inbound and outbound communications traffic, to detect attacks and indicators of potential attacks."
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

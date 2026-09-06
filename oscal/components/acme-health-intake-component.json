@@ -1,0 +1,167 @@
+{
+  "component-definition": {
+    "uuid": "0455c4b5-ad64-49b9-ab24-0eab449ca6ee",
+    "metadata": {
+      "title": "Acme Health Patient Intake API - GRC component",
+      "last-modified": "2026-09-06T00:00:00.000000+00:00",
+      "version": "1.0.0",
+      "oscal-version": "1.2.1",
+      "parties": [
+        {
+          "uuid": "faccce4d-46cb-4d05-bc39-409bc36b85f9",
+          "type": "organization",
+          "name": "Acme Health"
+        }
+      ]
+    },
+    "components": [
+      {
+        "uuid": "4937a19b-1165-49b2-a445-30968b29252c",
+        "type": "software",
+        "title": "Patient Intake API",
+        "description": "The deployed Acme Health Patient Intake API: API Gateway HTTP API, Lambda handler, DynamoDB submissions table, and S3 uploads bucket, hardened against the 8 gaps in GAPS.md and continuously checked by the grc-gate pipeline on every push.",
+        "purpose": "Accept patient intake submissions and store them in a way that is defensible against a CMMC Level 2 audit.",
+        "responsible-roles": [
+          { "role-id": "provider", "party-uuids": ["faccce4d-46cb-4d05-bc39-409bc36b85f9"] }
+        ],
+        "control-implementations": [
+          {
+            "uuid": "b6bed013-c6c3-4127-aba8-338e8475e109",
+            "source": "../catalogs/cmmc-l2-subset-catalog.json",
+            "description": "CMMC Level 2 practices implemented by this repository's Terraform and OPA policies, one implemented-requirement per gap in GAPS.md. See WRITEUP.md's Control coverage table for the full commit history behind each one.",
+            "implemented-requirements": [
+              {
+                "uuid": "fc501eec-fb94-46c1-9ff3-519aaea204fe",
+                "control-id": "SC.L2-3.13.11",
+                "description": "GAP-01: the uploads bucket is encrypted with aws:kms using a customer-managed CMK (terraform/kms.tf's aws_kms_key.phi), not the AWS-managed SSE-S3 default. Enforced continuously by policies/gap01_s3_kms.rego, which fails the gate if the SSE config is removed or reverted to AES256.",
+                "props": [
+                  { "name": "implementation-status", "value": "implemented" },
+                  { "name": "terraform-resource", "value": "aws_s3_bucket_server_side_encryption_configuration.uploads" }
+                ],
+                "links": [
+                  {
+                    "rel": "evidence",
+                    "href": "s3://acme-health-intake-evidence-vault-4f63d674/runs/34024978457/evidence-34024978457-7264ec7ff9556dfb3a91d879365a73127ccd085d.tar.gz",
+                    "text": "Signed grc-gate pipeline bundle for the run that applied this control to production (commit 5e20b28, policy gap01_s3_kms.rego added in 808d48a). Verify with scripts/verify-evidence.sh 34024978457."
+                  }
+                ]
+              },
+              {
+                "uuid": "ae698e07-52e9-4cc2-8f41-c7c03e0694c9",
+                "control-id": "SC.L2-3.13.11",
+                "description": "GAP-02: the submissions table's server_side_encryption block uses the same customer-managed CMK, not the AWS-owned default. Enforced continuously by policies/gap02_dynamodb_kms.rego.",
+                "props": [
+                  { "name": "implementation-status", "value": "implemented" },
+                  { "name": "terraform-resource", "value": "aws_dynamodb_table.intake" }
+                ],
+                "links": [
+                  {
+                    "rel": "evidence",
+                    "href": "s3://acme-health-intake-evidence-vault-4f63d674/runs/34024978457/evidence-34024978457-7264ec7ff9556dfb3a91d879365a73127ccd085d.tar.gz",
+                    "text": "Signed grc-gate pipeline bundle for the run that applied this control to production (commit d2aacfa, policy gap02_dynamodb_kms.rego added in 808d48a). Verify with scripts/verify-evidence.sh 34024978457."
+                  }
+                ]
+              },
+              {
+                "uuid": "fc1dc347-8b2e-4ba0-8aba-b9fed4bce341",
+                "control-id": "SC.L2-3.13.8",
+                "description": "GAP-03: the uploads bucket has a policy denying any request where aws:SecureTransport is false. Terraform-only; not independently re-verified in policy because its content lives inside a jsonencode()'d policy document Terraform's plan JSON doesn't expose as a flat string (see WRITEUP.md Notes).",
+                "props": [
+                  { "name": "implementation-status", "value": "implemented" },
+                  { "name": "terraform-resource", "value": "aws_s3_bucket_policy.uploads_tls_only" }
+                ],
+                "links": [
+                  {
+                    "rel": "evidence",
+                    "href": "s3://acme-health-intake-evidence-vault-4f63d674/runs/34024978457/evidence-34024978457-7264ec7ff9556dfb3a91d879365a73127ccd085d.tar.gz",
+                    "text": "Signed grc-gate pipeline bundle for the run that applied this control to production (commit 6919a6e). Verify with scripts/verify-evidence.sh 34024978457."
+                  }
+                ]
+              },
+              {
+                "uuid": "890d9e3a-4e96-44bd-a432-e0d74d312691",
+                "control-id": "MP.L2-3.8.9",
+                "description": "GAP-04: versioning is enabled on the uploads bucket so PHI overwrites and deletes are recoverable. Enforced continuously by policies/gap04_s3_versioning.rego, which generalizes to every aws_s3_bucket in the plan and caught a real gap on the CloudTrail bucket before this component was ever written.",
+                "props": [
+                  { "name": "implementation-status", "value": "implemented" },
+                  { "name": "terraform-resource", "value": "aws_s3_bucket_versioning.uploads" }
+                ],
+                "links": [
+                  {
+                    "rel": "evidence",
+                    "href": "s3://acme-health-intake-evidence-vault-4f63d674/runs/34024978457/evidence-34024978457-7264ec7ff9556dfb3a91d879365a73127ccd085d.tar.gz",
+                    "text": "Signed grc-gate pipeline bundle for the run that applied this control to production (commit 33c00d2, policy gap04_s3_versioning.rego added in 808d48a). Verify with scripts/verify-evidence.sh 34024978457."
+                  }
+                ]
+              },
+              {
+                "uuid": "d4033b64-6163-4525-a14a-de9463b8ab0b",
+                "control-id": "SC.L2-3.13.1",
+                "description": "GAP-05: the intake Lambda runs inside the starter's existing private VPC subnets with a scoped security group, reaching DynamoDB, S3, and KMS only via VPC endpoints rather than the public internet. Enforced continuously by policies/gap05_lambda_vpc.rego as an existence check on vpc_config.",
+                "props": [
+                  { "name": "implementation-status", "value": "implemented" },
+                  { "name": "terraform-resource", "value": "aws_lambda_function.intake" }
+                ],
+                "links": [
+                  {
+                    "rel": "evidence",
+                    "href": "s3://acme-health-intake-evidence-vault-4f63d674/runs/34024978457/evidence-34024978457-7264ec7ff9556dfb3a91d879365a73127ccd085d.tar.gz",
+                    "text": "Signed grc-gate pipeline bundle for the run that applied this control to production (commit 2774c97, policy gap05_lambda_vpc.rego added in 808d48a). Verify with scripts/verify-evidence.sh 34024978457."
+                  }
+                ]
+              },
+              {
+                "uuid": "7a444383-09a3-4591-8d40-ad7aa8c85f1b",
+                "control-id": "SI.L2-3.14.6",
+                "description": "GAP-06: a dead-letter queue and X-Ray tracing were added to the intake Lambda. Marked partial, not implemented: the DLQ only catches asynchronous-invocation failures and this Lambda is invoked synchronously by API Gateway, and reserved concurrency could not be set at all against this account's 10-execution Lambda quota (see WRITEUP.md Notes). Not enforced in policy given its own partial nature.",
+                "props": [
+                  { "name": "implementation-status", "value": "partial" },
+                  { "name": "terraform-resource", "value": "aws_sqs_queue.intake_dlq" }
+                ],
+                "links": [
+                  {
+                    "rel": "evidence",
+                    "href": "s3://acme-health-intake-evidence-vault-4f63d674/runs/34024978457/evidence-34024978457-7264ec7ff9556dfb3a91d879365a73127ccd085d.tar.gz",
+                    "text": "Signed grc-gate pipeline bundle for the run that applied this control to production (commit b60bd72). Verify with scripts/verify-evidence.sh 34024978457."
+                  }
+                ]
+              },
+              {
+                "uuid": "56f1c094-b11a-4866-8d0f-fc3aba282825",
+                "control-id": "AC.L2-3.1.5",
+                "description": "GAP-07: the Lambda's inline IAM policy is scoped to exactly dynamodb:PutItem and s3:PutObject, down from the starter's dynamodb:*/s3:*. Enforced continuously by policies/gap07_lambda_least_priv.rego, which regex-checks the planned policy document for any service:* wildcard action and confirmed blocking a real reintroduction of this gap in PR #2 (CI run 34025487183).",
+                "props": [
+                  { "name": "implementation-status", "value": "implemented" },
+                  { "name": "terraform-resource", "value": "aws_iam_role_policy.lambda_inline" }
+                ],
+                "links": [
+                  {
+                    "rel": "evidence",
+                    "href": "s3://acme-health-intake-evidence-vault-4f63d674/runs/34024978457/evidence-34024978457-7264ec7ff9556dfb3a91d879365a73127ccd085d.tar.gz",
+                    "text": "Signed grc-gate pipeline bundle for the run that applied this control to production (commit c8c7d13, policy gap07_lambda_least_priv.rego added in 808d48a). Verify with scripts/verify-evidence.sh 34024978457."
+                  }
+                ]
+              },
+              {
+                "uuid": "f63acf57-f3f3-4e54-81c6-8da9759d914f",
+                "control-id": "AU.L2-3.3.1",
+                "description": "GAP-08: the API Gateway stage has access logging and throttling, writing to a CloudWatch log group encrypted with the same customer CMK and scoped with an aws:SourceArn condition against confused-deputy access. WAF was not attached: WAFv2 does not support HTTP APIs as an association target at all (see WRITEUP.md Notes). Logging/throttling existence enforced continuously by policies/gap08_apigw_logging.rego; WAF has no policy check since it was never built.",
+                "props": [
+                  { "name": "implementation-status", "value": "partial" },
+                  { "name": "terraform-resource", "value": "aws_apigatewayv2_stage.default" }
+                ],
+                "links": [
+                  {
+                    "rel": "evidence",
+                    "href": "s3://acme-health-intake-evidence-vault-4f63d674/runs/34024978457/evidence-34024978457-7264ec7ff9556dfb3a91d879365a73127ccd085d.tar.gz",
+                    "text": "Signed grc-gate pipeline bundle for the run that applied this control to production (commits 2c3fe52, 7ed5d48, policy gap08_apigw_logging.rego added in 808d48a). Verify with scripts/verify-evidence.sh 34024978457."
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "profile": {
+    "uuid": "07a97e7e-58c1-450e-b13e-9ce594f2b1b6",
+    "metadata": {
+      "title": "Acme Health capstone: CMMC Level 2 minimum control selection",
+      "last-modified": "2026-09-06T00:00:00.000000+00:00",
+      "version": "1.0.0",
+      "oscal-version": "1.2.1"
+    },
+    "imports": [
+      {
+        "href": "../catalogs/cmmc-l2-subset-catalog.json",
+        "include-controls": [
+          {
+            "with-ids": [
+              "AC.L2-3.1.5",
+              "AU.L2-3.3.1",
+              "MP.L2-3.8.9",
+              "SC.L2-3.13.1",
+              "SC.L2-3.13.8",
+              "SC.L2-3.13.11",
+              "SI.L2-3.14.6"
+            ]
+          }
+        ]
+      }
+    ],
+    "merge": { "as-is": true }
+  }
+}
