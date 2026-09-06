@@ -1,0 +1,23 @@
+# trestle validation output for this repo's OSCAL artifacts
+# Regenerate: see oscal/README.md
+# Captured: 2026-09-06T15:20:40Z
+# Tool: Trestle version v5.0.0 based on OSCAL version 1.2.1
+
+$ trestle validate -a
+VALID: Model .trestle-work/catalogs/cmmc-l2-subset/catalog.json passed the Validator to confirm the model passes all registered validation tests.
+VALID: Model .trestle-work/catalogs/cge-p-minimum-resolved/catalog.json passed the Validator to confirm the model passes all registered validation tests.
+VALID: Model .trestle-work/component-definitions/acme-health-intake/component-definition.json passed the Validator to confirm the model passes all registered validation tests.
+VALID: Model .trestle-work/profiles/cge-p-minimum/profile.json passed the Validator to confirm the model passes all registered validation tests.
+
+$ trestle author profile-resolve -n cge-p-minimum -o cge-p-minimum-resolved
+Validating local file access: /Users/rubenclarke/Desktop/1. Projects/GitHub/GRC-Engineering/CGE-P/cgep-app-starter/.trestle-work/profiles/cge-p-minimum/profile.json
+
+# Controls pulled into the resolved profile:
+  - AC.L2-3.1.5
+  - AU.L2-3.3.1
+  - MP.L2-3.8.9
+  - SC.L2-3.13.1
+  - SC.L2-3.13.11
+  - SC.L2-3.13.8
+  - SI.L2-3.14.6
+  total: 7
